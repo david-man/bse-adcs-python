@@ -49,7 +49,7 @@ def igdf_eci_vector(x : float, y : float, z : float, time : datetime.time):
     ecefb_x, ecefb_y, ecefb_z = pymap3d.enu2ecef(b_east, b_north, b_up, lat, lon, alt)
     b_x, b_y, b_z = pymap3d.ecef2eci(ecefb_x, ecefb_y, ecefb_z, time)
     b_vec = np.array([b_x - x, b_y - y, b_z - z])
-    return b_vec
+    return b_vec.reshape((3,))
 
 def right_ascension_to_longitude(right_ascension : np.float64, time : datetime.time):
     #takes in degrees, returns values in degrees

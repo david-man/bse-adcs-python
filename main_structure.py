@@ -1,21 +1,21 @@
 import math
-from kalman_filters import EKF, QuaternionMEKF
+from kalman_filters import EKF, QuatMEKF
 import support_functions
 import numpy as np
 from pyquaternion import Quaternion
 from numpy.typing import NDArray
 import constants
 from datetime import datetime
-
 class AttitudeIndependentOrbitPropagation(EKF):
     def f(self, state):
         return support_functions.propagate_orbit(state, self.dt)
     def h(self, state):
         cartesian_terms = support_functions.kep_to_cart(state)
-        return support_functions.igdf_eci_vector(cartesian_terms[0], 
+        mag_vec = support_functions.igdf_eci_vector(cartesian_terms[0], 
                                                  cartesian_terms[1],
                                                  cartesian_terms[2],
                                                  self.time)
+        return np.array([np.linalg.norm(mag_vec)])
     
 
 class BDotEstimation(EKF):
@@ -34,12 +34,11 @@ class QUEST():
     '''An implementation of the Quaternion Estimation algorithm by Shuster et al.'''
     @staticmethod
     def NewtonRaphson(proposed_eigen, a, b, c, d, sigma):
-        '''The Newton-Raphson method for finding roots, applied specifically for QUEST'''
         return proposed_eigen - (proposed_eigen**4 - (a+b)*(proposed_eigen**2) - c*proposed_eigen + (a*b + c*sigma - d)) \
         / (4*(proposed_eigen**3) - 2*(a+b)*proposed_eigen - c)
     @staticmethod
     def QUEST(observation_vectors, reference_vectors):
-        iters = 10
+        iters = 1
         #all vectors should be unit vectors of shape (3, )
         vector_count = len(observation_vectors)
         weights = np.random.random(vector_count)
@@ -76,10 +75,11 @@ class Framework():
     def __init__(self, initial_position : NDArray, initial_readings : NDArray, throw_eclipse = False):
         self.throw_eclipse = throw_eclipse#determines if we throw the BDot measurement when not in eclipse
         self.last_called = datetime.now()
-        self.dt = 30
-        self.rotation_quaternion = Quaternion(1, 0, 0, 0)#guess
+        self.dt = constants.DT
         self.position = initial_position#should be in Kepler format
-        self.angular_velocities = np.array([0, 0, 0])
+        self.rotation_quat = Quaternion(vector = [0, 0, 0], scalar = 1)
+        self.angular_velocities = np.array([0.001, 0.001, 0.001])
+        self.prev_quaternion_cov = np.eye(6) * 10000
 
         if(len(initial_readings) == 3):
             self.sun_vec = None
@@ -91,8 +91,8 @@ class Framework():
         #[Semi-major axis, Eccentricity, Inclination, Argument of periapsis, Longitude of ascending node, Anomaly].
         #Observation: [MagB]
         self.orbit_determination = AttitudeIndependentOrbitPropagation(
-            constants.ORBIT_Q,
             constants.ORBIT_R,
+            constants.ORBIT_Q,
             self.position,
             np.eye(6) * 100000,
             self.dt
@@ -101,8 +101,8 @@ class Framework():
         #State: [Bx, By, Bz, Bdot_x, Bdot_y, Bdot_z, B2dot_x, B2dot_y, B2dot_z]
         #Observation: [Bx, By, Bz]
         self.bdot_estimation = BDotEstimation(
-            constants.BDOT_Q,
             constants.BDOT_R,
+            constants.BDOT_Q,
             np.concatenate([self.magnetometer, np.zeros(6)]),
             np.eye(9),
             self.dt
@@ -110,17 +110,20 @@ class Framework():
 
         #State: [q0, q1, q2, q3, w_x, w_y, w_z], angular vels in RADIANS
         #Observation: [q0, q1, q2, q3]
-        self.quaternion_estimation = QuaternionMEKF(
-            constants.ROT_Q,
+        
+        self.quaternion_estimation = QuatMEKF(
             constants.ROT_R,
-            np.concatenate([self.rotation_quaternion.elements, self.angular_velocities]),
-            np.eye(7),
+            constants.ROT_Q,
+            np.concatenate([self.rotation_quat.elements, self.angular_velocities], axis = 0),
+            np.eye(6)*10000,
             self.dt
         )
+        
 
-    def propagate(self, measurements):
+    def propagate(self, measurements, time):
         '''Propagates all aspects of the model'''
-        cur_time = datetime.now()
+
+        cur_time = time
         last_time = self.last_called
         self.last_called = cur_time
         self.bdot_estimation.set_time(cur_time)
@@ -133,12 +136,13 @@ class Framework():
             self.quaternion_estimation.predict()
 
             self.position = self.get_position_eci()
-            self.rotation_quaternion = self.get_rotation_from_eci()
+            self.rotation_quat = self.get_rotation_from_eci()
         else:
+            
             self.magnetometer = measurements[:3]#definitely will be there
             #ORBITAL
             last_position = self.get_position_eci(True)[:3]
-            self.orbit_determination.iterate(self.magnetometer)
+            self.orbit_determination.iterate(np.linalg.norm(self.magnetometer))
             self.position = self.orbit_determination.state_estimate
             new_position = self.get_position_eci(True)[:3]
 
@@ -149,9 +153,10 @@ class Framework():
 
             reference_b = support_functions.igdf_eci_vector(new_position[0], new_position[1], new_position[2], cur_time)
             reference_b_last = support_functions.igdf_eci_vector(last_position[0], last_position[1], last_position[2], last_time)
-
+            reference_bdot = (reference_b - reference_b_last)/self.dt
             observed_vectors = [b, bdot]
-            reference_vectors = [reference_b, (reference_b_last - reference_b)/self.dt]
+            reference_vectors = [reference_b, reference_bdot]
+            
 
             if(len(measurements) > 3):#if not in eclipse
                 if(self.throw_eclipse):
@@ -159,13 +164,20 @@ class Framework():
                     reference_vectors = [reference_b]
                 self.sun_vec = measurements[3:6]
                 observed_vectors.append(self.sun_vec)
-                reference_vectors.append(support_functions.raw_sun_vector(cur_time))
-            
-            pred_quaternion = QUEST.QUEST(observed_vectors, reference_vectors)
-            self.quaternion_estimation.iterate(pred_quaternion.elements)
-            self.rotation_quaternion = self.get_rotation_from_eci()
-            self.angular_velocities = self.quaternion_estimation.get_w()
+                reference_vectors.append(support_functions.eci_sun_vector(cur_time))
 
+            normalized_observed = []
+            normalized_reference = []
+            for vec in observed_vectors:
+                normalized_observed.append(vec / np.linalg.norm(vec))
+            for vec in reference_vectors:
+                normalized_reference.append(vec / np.linalg.norm(vec))
+            pred_quaternion = QUEST.QUEST(normalized_observed, normalized_reference)
+
+            self.quaternion_estimation.iterate(pred_quaternion)
+            state = self.quaternion_estimation.state_estimate
+            self.rotation_quat = Quaternion(state[:4])
+            self.angular_velocities = state[4:]
 
     def get_rotation_from_eci(self):
         '''Gets the current believed rotation quaternion that goes from ECI frame to body frame'''
@@ -174,8 +186,9 @@ class Framework():
     def get_w(self):
         '''Gets the current believed angular velocities'''
         return self.quaternion_estimation.state_estimate[4:7]
+    
     def get_position_eci(self, cartesian = False):
-        '''Gets the current believed position in ECI'''
+        '''Gets the current believed position in ECI(6 elements)'''
         current_position = self.orbit_determination.state_estimate
         if(cartesian):
             return support_functions.kep_to_cart(current_position)
