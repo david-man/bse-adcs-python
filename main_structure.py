@@ -128,7 +128,7 @@ class Framework():
         self.last_called = cur_time
         self.bdot_estimation.set_time(cur_time)
         self.orbit_determination.set_time(cur_time)
-        #self.quaternion_estimation.set_time(cur_time)
+        self.quaternion_estimation.set_time(cur_time)
 
         if(len(measurements) == 0):#if we received no measurements, just propagate forward
             self.bdot_estimation.predict()
@@ -149,7 +149,7 @@ class Framework():
             #ATTITUDE
             self.bdot_estimation.iterate(self.magnetometer)
             b = self.get_b()
-            bdot = self.get_bdot()
+            bdot = self.get_bdot() #assumed 0 angular velocity while in eclipse
 
             reference_b = support_functions.igdf_eci_vector(new_position[0], new_position[1], new_position[2], cur_time)
             reference_b_last = support_functions.igdf_eci_vector(last_position[0], last_position[1], last_position[2], last_time)
