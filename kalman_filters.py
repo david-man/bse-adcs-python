@@ -3,7 +3,7 @@ import numpy as np
 from typing import Callable
 from numpy.typing import NDArray
 from pyquaternion import Quaternion
-
+from filterpy.kalman import UnscentedKalmanFilter, MerweScaledSigmaPoints
 class KalmanFilter():
     '''Class detailing an abstract Kalman Filter'''
     def __init__(self, observation_noise_matrix : NDArray[np.float64], 
@@ -58,6 +58,35 @@ class KalmanFilter():
 
         return J
 
+class UKF(KalmanFilter):
+    '''Class detailing a generalized unscented Kalman filter'''
+    def __init__(self, 
+                 observation_noise_matrix : NDArray[np.float64], 
+                 process_noise_matrix : NDArray[np.float64], 
+                 starting_state : NDArray[np.float64], 
+                 starting_covariance : NDArray[np.float64], 
+                 simulation_dt : int,
+                 alpha : int):
+        super().__init__(observation_noise_matrix,
+                 process_noise_matrix, 
+                 starting_state,
+                 starting_covariance,
+                 simulation_dt)
+        
+        points = MerweScaledSigmaPoints(self.state_size, alpha=alpha, beta=2., kappa= 3 - self.measurement_size)
+        self.kf = UnscentedKalmanFilter(dim_x=self.state_size, dim_z=self.measurement_size, dt=simulation_dt, fx=self.f, hx=self.h, points=points)
+        self.kf.x = starting_state
+        self.kf.P = starting_covariance
+        self.kf.Q = process_noise_matrix
+        self.kf.R = observation_noise_matrix
+    def f(self, state, dt) -> NDArray[np.float64]:
+        #redefines f for the UnscentedKalmanFilter formulation given by filterpy
+        pass
+    def predict(self) -> None:
+        self.kf.predict()
+    def update(self) -> None:
+        self.kf.update()
+
 class EKF(KalmanFilter):
     '''Class detailing a standard EKF'''
     def predict(self):
@@ -74,6 +103,7 @@ class EKF(KalmanFilter):
         self.covariance = (np.eye(len(self.state_estimate)) - kalman_gain@H)@self.covariance
 
 class QuaternionMEKF(KalmanFilter):
+    '''Class detailing a Quaternion MEKF'''
     def __init__(self, observation_noise_matrix : NDArray[np.float64], 
                  process_noise_matrix : NDArray[np.float64], 
                  starting_state : NDArray[np.float64], 
@@ -86,17 +116,20 @@ class QuaternionMEKF(KalmanFilter):
         self.angular_velocities = np.array([0.0, 0.0, 0.0])
         self.dt = simulation_dt
         self.G = np.zeros(shape=(6, 6), dtype=float)
-        self.G[0:3, 3:6] = -np.identity(3)
+        self.G[0:3, 3:6] = -np.eye(3)
 
     def predict(self):
-        gyro_meas = -self.angular_velocities
+        gyro_meas = -self.angular_velocities#fakes a gyro measurement using the angular velocities
         self.G[0:3, 0:3] = -self.skewSymmetric(gyro_meas)
-        F = np.identity(6, dtype=float) + self.G*self.dt
+        F = np.eye(6) + self.G*self.dt
+
+        #Standard Kalman Filter
         self.estimate_covariance = np.dot(np.dot(F, self.estimate_covariance), F.transpose()) + self.process_covariance
         self.estimate = self.estimate + self.dt*0.5*self.estimate*Quaternion(scalar = 0, vector=gyro_meas)
         self.estimate = self.estimate.normalised
         
     def skewSymmetric(self, v):
+        '''Returns skew-symmetric matrix for an angular velocity vector'''
         return np.array([[0.0, -v[2], v[1]],
                         [v[2], 0.0, -v[0]],
                         [-v[1], v[0], 0.0]]) 
@@ -112,7 +145,7 @@ class QuaternionMEKF(KalmanFilter):
         
         #Form process model
         self.G[0:3, 0:3] = -self.skewSymmetric(gyro_meas)
-        F = np.identity(6, dtype=float) + self.G*time_delta
+        F = np.eye(6) + self.G*time_delta
 
         #Update with a priori covariance
         self.estimate_covariance = np.dot(np.dot(F, self.estimate_covariance), F.transpose()) + self.process_covariance
