@@ -12,33 +12,44 @@ class AttitudeIndependentOrbitPropagation():
                  process_noise_matrix : NDArray[np.float64], 
                  starting_state : NDArray[np.float64], 
                  starting_covariance : NDArray[np.float64], 
-                 simulation_dt : int):
-        points = MerweScaledSigmaPoints(6, alpha=10, beta=2., kappa=-3)
-        self.kf = UnscentedKalmanFilter(dim_x=6, dim_z=1, dt=simulation_dt, fx=self.f, hx=self.h, points=points)
-        self.kf.x = support_functions.kep_to_cart(starting_state)
+                 simulation_dt : int,
+                 bias_sparcity : int):
+        points = MerweScaledSigmaPoints(9, alpha=10, beta=2., kappa=-6)
+        self.kf = UnscentedKalmanFilter(dim_x=9, dim_z=1, dt=simulation_dt, fx=self.f, hx=self.h, points=points)
+        self.kf.x = np.concatenate([support_functions.kep_to_cart(starting_state),
+                                    np.zeros(3)])
         self.kf.P = starting_covariance
         self.kf.Q = process_noise_matrix
         self.kf.R = observation_noise_matrix
+        self.bias_update_sparcity = bias_sparcity
+        self.last_bias = np.zeros(3)
+        self.iterations = 0
 
     def f(self, state, dt):
         g = support_functions.get_gravity_accel(state[:3])
-        return state + dt * np.concatenate([state[3:] + 1/2 * g * dt, g])
+        return state + dt * np.concatenate([state[3:6] + 1/2 * g * dt, g, np.zeros(3)])
     def h(self, state):
-        n = np.linalg.norm(support_functions.igdf_eci_vector(state[0], state[1], state[2], self.time))
+        mag = support_functions.igdf_eci_vector(state[0], state[1], state[2], self.time) + state[6:]
+        n = np.linalg.norm(mag)
         return np.array([n])
     def set_time(self, time):
         self.time = time
     def predict(self):
         self.kf.predict()
     def update(self, measurement):
+        self.last_bias = self.kf.x[6:]
         self.kf.update(measurement)
+        if(not(self.iterations % self.bias_update_sparcity == 0)):#revert if bias sparcity
+            self.kf.x[6:] = self.last_bias
+        self.iterations += 1
+        
 
-class OrbitalPropagator():
-    def __init__(self, starting_state, simulation_dt):
-        self.state = starting_state
-        self.dt = simulation_dt
-    def predict(self):
-        self.state = support_functions.propagate_orbit(self.state, self.dt)
+# class OrbitalPropagator():
+#     def __init__(self, starting_state, simulation_dt):
+#         self.state = starting_state
+#         self.dt = simulation_dt
+#     def predict(self):
+#         self.state = support_functions.propagate_orbit(self.state, self.dt)
     
 
 class BDotEstimation(EKF):
@@ -95,7 +106,8 @@ class QUEST():
     
 class Framework():
     '''The framework of attitude & orbital determination based on Yakupoglu-Altuntas et al.'''
-    def __init__(self, initial_position : NDArray, initial_readings : NDArray, throw_eclipse = False):
+    def __init__(self, initial_position : NDArray, initial_readings : NDArray, throw_eclipse = False,
+                 bias_update_frequency = 10):
         self.throw_eclipse = throw_eclipse#determines if we throw the BDot measurement when not in eclipse
         self.last_called = datetime.now()
         self.dt = constants.DT
@@ -117,8 +129,9 @@ class Framework():
             constants.ORBIT_R,
             constants.ORBIT_Q,
             self.position,
-            np.eye(6) * 100000,
-            self.dt
+            np.diag([1,1,1,1,1,1,10000, 10000, 10000]),
+            self.dt,
+            bias_update_frequency#update bias every N updates
         )
 
         #State: [Bx, By, Bz, Bdot_x, Bdot_y, Bdot_z, B2dot_x, B2dot_y, B2dot_z]
@@ -127,7 +140,7 @@ class Framework():
             constants.BDOT_R,
             constants.BDOT_Q,
             np.concatenate([self.magnetometer, np.zeros(6)]),
-            np.eye(9),
+            np.eye(9) * 100,
             self.dt
         )
 
@@ -171,8 +184,8 @@ class Framework():
 
             #ATTITUDE
             self.bdot_estimation.iterate(self.magnetometer)
-            b = self.get_b()
-            bdot = self.get_bdot() #assumed 0 angular velocity while in eclipse
+            b = self.magnetometer + self.get_mag_bias()
+            bdot = self.get_bdot()#assumed 0 angular velocity, which is a major flaw point
 
             reference_b = support_functions.igdf_eci_vector(new_position[0], new_position[1], new_position[2], cur_time)
             reference_b_last = support_functions.igdf_eci_vector(last_position[0], last_position[1], last_position[2], last_time)
@@ -201,7 +214,7 @@ class Framework():
             measurement_2 = pred_quaternion.rotate([0, 1.0, 0.0])
             measurement_3 = pred_quaternion.rotate([1.0, 0.0, 0.0])
             self.quaternion_estimation.iterate(np.concatenate([measurement_1, measurement_2, measurement_3], axis =0))
-            self.angular_velocities = self.quaternion_estimation.gyro_bias
+            self.angular_velocities = self.quaternion_estimation.angular_velocities
             #generates vector from body to ECI
 
     def get_rotation_from_eci(self):
@@ -219,11 +232,14 @@ class Framework():
 
     def get_b(self):
         '''Gets the current believed magnetosphere influence'''
-        return self.magnetometer
+        return self.bdot_estimation.state_estimate[:3]
 
     def get_bdot(self):
         '''Gets the current believed derivative of magnetosphere influence'''
         return self.bdot_estimation.state_estimate[3:6]
+    
+    def get_mag_bias(self):
+        return self.orbit_determination.kf.x[6:]
 
 
 
