@@ -112,7 +112,7 @@ class KeplerAssumedOrbitalPropagator():
     def iterate(self, measurement):
         #iterates via a predict
         self.predict()
-    def set_time(self):
+    def set_time(self, time):
         #allows this propagator to work with the others
         pass
     

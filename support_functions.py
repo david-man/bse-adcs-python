@@ -117,3 +117,11 @@ def quat_diff(q1, q2):
     psi   = math.atan2( 2 * (qd.w * qd.z + qd.x * qd.y), 1 - 2 * (qd.y**2 + qd.z**2) )
 
     return math.degrees(phi), math.degrees(theta), math.degrees(psi)
+
+def skew_symmetric(w):
+    '''Calculates the skew symmetric matrix for w'''
+    return -np.array([
+        [0, w[2], -w[1]],
+        [-w[2], 0, w[0]],
+        [w[1], -w[0], 0]
+    ])

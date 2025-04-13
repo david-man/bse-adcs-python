@@ -19,9 +19,10 @@ class Framework():
                  ):
         self.throw_eclipse = throw_eclipse
         self.last_called = datetime.now()
+        self.w_absolute = [0,0,0]
         self.dt = constants.DT
         self.cartesian_position = initial_cartesian_position
-        self.rotation_quat = Quaternion(vector = [0, 0, 0], scalar = 1)#initial rotation prediction
+        self.rotation_quat = Quaternion(vector = [0,0,0], scalar = 1)#initial rotation prediction of 0
         self.angular_velocities = np.array([0.0001, 0.0001, 0.0001])
 
         if(len(initial_readings) == 3):
@@ -101,9 +102,8 @@ class Framework():
 
             #ATTITUDE ESTIMATION
             self.bdot_estimation.iterate(self.magnetometer)
-            observed_b = self.magnetometer + self.get_mag_bias()#raw b value
-            observed_bdot = self.get_bdot()#assumed 0 angular velocity, which is a major flaw point
-
+            observed_b = self.get_b() + self.get_mag_bias()#raw b value
+            observed_bdot = self.get_bdot() - support_functions.skew_symmetric(self.w_absolute)@self.get_b()
             reference_b = support_functions.igdf_eci_vector(new_position[0], new_position[1], new_position[2], cur_time)
             reference_b_last = support_functions.igdf_eci_vector(last_position[0], last_position[1], last_position[2], last_time)
             reference_bdot = (reference_b - reference_b_last)/self.dt#very simple derivative calculation
@@ -126,7 +126,6 @@ class Framework():
                 normalized_reference_vectors.append(vec / np.linalg.norm(vec))
 
             predicted_quaternion = QUEST.QUEST(normalized_observed_vectors, normalized_reference_vectors) #predicted quaternion from ECI to body based on QUEST
-
             #rotates unit vectors from eci to body as "prediction" vectors
             measurement_1 = predicted_quaternion.rotate([0, 0, 1.0])
             measurement_2 = predicted_quaternion.rotate([0, 1.0, 0.0])
@@ -143,6 +142,9 @@ class Framework():
         '''Gets the current believed rotation quaternion that goes from body frame to ECI frame based off the QuatMEKF'''
         return self.quaternion_estimation.estimate.inverse()
     
+    def set_w_absolute(self, w_absolute):
+        '''Sets an absolute angular velocity from external sources'''
+        self.w_absolute = w_absolute
     def get_w(self, degrees = False):
         '''Gets the current believed angular velocities based off the QuatMEKF'''
         if(degrees):
