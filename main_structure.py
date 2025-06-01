@@ -125,7 +125,9 @@ class Framework():
             for vec in reference_vectors:
                 normalized_reference_vectors.append(vec / np.linalg.norm(vec))
 
-            predicted_quaternion = QUEST.QUEST(normalized_observed_vectors, normalized_reference_vectors) #predicted quaternion from ECI to body based on QUEST
+            predicted_quaternion = QUEST.QUEST(normalized_observed_vectors, normalized_reference_vectors) 
+            #predicted quaternion from ECI to body based on QuEST
+
             #rotates unit vectors from eci to body as "prediction" vectors
             measurement_1 = predicted_quaternion.rotate([0, 0, 1.0])
             measurement_2 = predicted_quaternion.rotate([0, 1.0, 0.0])
@@ -136,11 +138,11 @@ class Framework():
 
     def get_rotation_from_eci(self):
         '''Gets the current believed rotation quaternion that goes from ECI frame to body frame based off the QuatMEKF'''
-        return self.quaternion_estimation.estimate
+        return self.quaternion_estimation.estimate.inverse
     
     def get_rotation_to_eci(self):
         '''Gets the current believed rotation quaternion that goes from body frame to ECI frame based off the QuatMEKF'''
-        return self.quaternion_estimation.estimate.inverse()
+        return self.quaternion_estimation.estimate
     
     def set_w_absolute(self, w_absolute):
         '''Sets an absolute angular velocity from external sources'''

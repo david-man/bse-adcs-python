@@ -166,7 +166,6 @@ class QUEST():
         alpha = proposed_eigen**2 - sigma**2 + kappa
         beta = proposed_eigen - sigma
         gamma = (proposed_eigen + sigma)*alpha - delta
-        X = (alpha*np.eye(3) + beta*S + S@S)@Z#non-negative as we are attempting to get a vector from reference to observation, rather from observation to reference 
-
+        X = -(alpha*np.eye(3) + beta*S + S@S)@Z
         return 1/math.sqrt(gamma**2 + (np.linalg.norm(X))**2) * Quaternion(scalar = gamma, vector = X)
     

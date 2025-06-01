@@ -80,7 +80,7 @@ class UKF(KalmanFilter):
         self.kf.Q = process_noise_matrix
         self.kf.R = observation_noise_matrix
     def f(self, state, dt) -> NDArray[np.float64]:
-        #redefines f for the UnscentedKalmanFilter formulation given by filterpy
+        #redefines f for the UnscentedKalmanFilter formulation given by filter
         pass
     def predict(self) -> None:
         self.kf.predict()
@@ -163,6 +163,9 @@ class QuaternionMEKF(KalmanFilter):
         self.estimate_covariance = (np.identity(6) - np.dot(K, H)).dot(self.estimate_covariance)
 
         predicted_observation = np.zeros(shape=(9, ), dtype=float)
+
+        #our "true" vectors are simply ECI unit vectors, and our measured vectors are those unit vectors in body frame given by QuEST
+        #given that our estimated quaternion is a body->ECI rotation, we therefore need to do a ECI->body rotation on the unit vectors to get predicted observations
         predicted_observation[0:3] = self.estimate.inverse.rotate(np.array([0.0, 0.0, 1.0]))
         predicted_observation[3:6] = self.estimate.inverse.rotate(np.array([0.0, 1.0, 0.0]))
         predicted_observation[6:9] = self.estimate.inverse.rotate(np.array([1.0, 0.0, 0.0]))

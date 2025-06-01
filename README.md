@@ -13,5 +13,7 @@ https://arxiv.org/pdf/2307.06300
 https://ui.adsabs.harvard.edu/abs/1981JGCD....4...70S/abstract
 https://www.researchgate.net/publication/238189775_Orbit_Determination_Using_the_Geomagnetic_Field_Measurement_via_the_Unscented_Kalman_Filter
 https://www.acsu.buffalo.edu/~johnc/mag_cal05.pdf
+https://kodlab.seas.upenn.edu/uploads/Arun/UKFpaper.pdf
+https://www.researchgate.net/publication/224969500_Sigma-Point_Kalman_Filters_for_Integrated_Navigation
 
 
