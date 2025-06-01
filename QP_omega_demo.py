@@ -40,7 +40,7 @@ opti.set_initial(quat, [0,0,0,1])
 opti.set_initial(w, [0.00001, 0, 0])
 
 opti.minimize(norm_2(quat_rotate(quat, vec_1) - rotated_vec_1)**2 + \
-              norm_2(vec_derivative - (measured_derivative + cross(w, vec_1)))**2)
+              norm_2(vec_derivative - (measured_derivative + cross(w, vec_1)))**2)#comes from the derivative of a rotating vector, found at https://orbital-mechanics.space/review/time-derivatives-of-moving-vectors.html
 opti.solver('ipopt', {"print_time": False, "verbose": False}, {"print_level":1, "max_iter": 25000})
 derivative = Rotation.from_quat((last_true_rot * true_rot.inverse).elements, scalar_first = True)
 
