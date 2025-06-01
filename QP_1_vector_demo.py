@@ -4,8 +4,8 @@ import spatial_casadi as sc
 from scipy.spatial.transform import Rotation
 
 '''
-This file demonstrates the ability for Quadratic Programming to, given a decently close initial guess as to the true rotation, accurately
-estimate the true rotation with JUST ONE VECTOR. 
+This file demonstrates the ability for Quadratic Programming to, given a close initial guess as to the true rotation, accurately
+estimate the true rotation with JUST ONE VECTOR. However, this is obviously unstable
 '''
 
 def get_inverse_quat(q):
